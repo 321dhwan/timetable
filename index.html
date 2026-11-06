@@ -121,6 +121,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline:3px so
 #preview { display:flex; flex-direction:column; gap:8px; }
 #preview img { max-width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; }
 .status { font-size:13px; color:var(--muted); margin:0; }
+.btns { display:flex; flex-wrap:wrap; gap:8px; }
+/* 인쇄: PNG와 같은 이미지만 A4 한 장에 맞춰 찍는다(화면에서는 숨김) */
+#printarea { display:none; }
+@media print {
+  @page { size:A4 portrait; margin:10mm; }
+  body { background:#fff; padding:0; }
+  main { max-width:none; display:block; }
+  main > *:not(#printarea) { display:none !important; }
+  #printarea { display:flex; justify-content:center; }
+  #printarea img { width:100%; max-height:277mm; object-fit:contain; }
+}
 @media (max-width:520px) { .form { grid-template-columns:1fr 1fr; } .form label:first-child { grid-column:1 / -1; } }
 </style>
 <script>
@@ -172,7 +183,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button class="tab" role="tab" id="tab-c" aria-selected="false">우리 반 시간표</button>
     </div>
     <div class="toolbar" style="margin-top:12px">
-      <button class="btn" id="save">PNG로 저장</button>
+      <div class="btns">
+        <button class="btn" id="save">PNG로 저장</button>
+        <button class="btn ghost" id="print">인쇄</button>
+      </div>
       <p class="status" id="status"></p>
     </div>
     <div class="merge-box" id="mergebox" hidden style="margin-top:10px">
@@ -193,6 +207,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <li><b>경기도교육청 메신저</b><span>서울삼육고 최두환</span></li>
     </ul>
   </footer>
+  <div id="printarea" aria-hidden="true"><img id="printimg" alt=""></div>
 </main>
 <script>
 "use strict";
@@ -719,14 +734,14 @@ function draw() {
       : state.name.trim() ? "‘" + state.name.trim() + "’ 선생님을 이 파일에서 찾지 못했습니다. 성과 이름을 정확히 입력해 주세요."
       : "위에서 선생님 이름을 입력하면 내 시간표가 나옵니다.";
     sheet.appendChild(el("p", "muted", msg));
-    $("save").disabled = true; $("mergebox").hidden = true; return;
+    $("save").disabled = true; $("print").disabled = true; $("mergebox").hidden = true; return;
   }
   // 파일에서 하루 통째 일정(학력평가 등)이 보이면 처음 한 번 자동으로 합쳐 준다
   if (vm.kind === "class" && !state.autoDone && vm.detected) {
     state.autoDone = true; Object.keys(vm.detected).forEach(function (i) { if (state.merged[i] == null) state.merged[i] = vm.detected[i]; });
     vm = currentVM();
   }
-  renderDOM(vm, sheet); $("save").disabled = !!vm.empty; updateMergeBox(vm); $("preview").hidden = true;
+  renderDOM(vm, sheet); $("save").disabled = $("print").disabled = !!vm.empty; updateMergeBox(vm); $("preview").hidden = true;
 }
 function fillClassSelect() {
   var g = $("grade").value, sel = $("klass"), keep = state.klass; sel.textContent = ""; sel.appendChild(new Option("선택", ""));
@@ -774,6 +789,7 @@ function init() {
     var v = this.value.trim(); Object.keys(state.merged).forEach(function (i) { state.merged[i] = v; }); if (state.book) draw();
   });
   $("save").onclick = savePNG;
+  $("print").onclick = printSheet;
   // 이름을 이미 기억하고 있으면 파일을 올린 뒤 바로 보여 준다
   window.addEventListener("beforeunload", function () {});
 }
@@ -794,6 +810,19 @@ async function savePNG() {
     }
   } catch (e) { status.textContent = "이미지를 만들지 못했습니다."; }
   $("save").disabled = false;
+}
+/* PNG로 저장할 때와 같은 이미지를 만들어 그 이미지만 인쇄한다 */
+async function printSheet() {
+  var vm = currentVM(); if (!vm || vm.empty) return;
+  var status = $("status"), btn = $("print"); status.textContent = "인쇄할 이미지를 만드는 중…"; btn.disabled = true;
+  try {
+    var img = $("printimg"), old = img.src, blob = await renderPNG(vm);
+    await new Promise(function (res, rej) { img.onload = res; img.onerror = rej; img.src = URL.createObjectURL(blob); });
+    if (old) URL.revokeObjectURL(old);
+    status.textContent = "";
+    window.print();
+  } catch (e) { status.textContent = "인쇄 창을 열지 못했습니다. PNG로 저장한 뒤 인쇄해 주세요."; }
+  btn.disabled = false;
 }
 init();
 </script>
