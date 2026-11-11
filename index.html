@@ -748,7 +748,13 @@ function lessonMap(book) {   // 이번 주: 선생님 → (칸 → {과목, 학�
   });
   return (book._lessons = m);
 }
-function labelClasses(l) { var m = /^(\d)-(\d+)$/.exec(l); return m ? m[2].split("").map(function (n) { return m[1] + "-" + n; }) : [l]; }   // 1-56 → 1-5, 1-6
+/* 기초시간표 학급 라벨 → 실제 반들: 1-56 → 1-5, 1-6 / 2A 같은 선택과목 묶음 → 그 학년 모든 반 */
+function labelClasses(l, book) {
+  var m = /^(\d)-(\d+)$/.exec(l); if (m) return m[2].split("").map(function (n) { return m[1] + "-" + n; });
+  var g = /^(\d)[A-E]$/.exec(l);
+  if (g) { var all = Object.keys(book.classRows).filter(function (c) { return c.split("-")[0] === g[1]; }).sort(); if (all.length) return all; }
+  return [l];
+}
 function baseLessons(book) {   // 기초시간표: 선생님 → (칸 → {과목, 학급들})
   if (book._baseLessons) return book._baseLessons;
   var m = new Map();
@@ -756,7 +762,8 @@ function baseLessons(book) {   // 기초시간표: 선생님 → (칸 → {과�
     list.forEach(function (e) {
       if (!m.has(e.name)) m.set(e.name, new Map());
       var t = m.get(e.name); if (!t.has(key)) t.set(key, { subj: e.subj, classes: [] });
-      labelClasses(e.label).forEach(function (c) { if (t.get(key).classes.indexOf(c) < 0) t.get(key).classes.push(c); });
+      if (/^\d[A-E]$/.test(e.label)) t.get(key).label = e.label + " 선택";
+      labelClasses(e.label, book).forEach(function (c) { if (t.get(key).classes.indexOf(c) < 0) t.get(key).classes.push(c); });
     });
   });
   return (book._baseLessons = m);
@@ -764,7 +771,7 @@ function baseLessons(book) {   // 기초시간표: 선생님 → (칸 → {과�
 function baseClassCells(book, cls) {   // 기초시간표로 만든 학급 시간표(칸 모양은 classCells와 같다)
   var out = new Map();
   book.baseAt.forEach(function (list, key) {
-    var es = list.filter(function (e) { return labelOk(e.label, cls, e.subj); });
+    var es = list.filter(function (e) { return labelOk(e.label, cls, e.subj) || labelClasses(e.label, book).indexOf(cls) >= 0; });
     if (!es.length) return;
     out.set(key, { subj: Array.from(new Set(es.map(function (e) { return e.subj; }))).join("·"),
                    names: es.map(function (e) { return e.name; }), parts: es.map(function (e) { return { subj: e.subj, names: [e.name] }; }) });
@@ -789,8 +796,31 @@ function absentByDay(book) {   // 요일별로 공지에 출장·연가 등이 �
 }
 /* 고른 주의 자료: off=0 이번 주(결보강 파일), off>=1 그 뒤 주(기초시간표) */
 function weekSource(book, off) {
-  if (!off) return { off: 0, base: false, days: book.days, lessons: lessonMap(book), absent: absentByDay(book),
-                     cells: function (cls) { return classCells(book, cls); } };
+  if (!off) {
+    var cc = {}, cellsOf = function (cls) { return cc[cls] || (cc[cls] = classCells(book, cls)); };
+    return { off: 0, base: false, days: book.days, lessons: lessonMap(book), absent: absentByDay(book), cells: cellsOf,
+      // 결보강 파일은 분반을 반별 줄에 나눠 적는다(1-3반 "수학/가·나", 1-4반 "수학/다"). 기초시간표에서 그 시간이 묶음(1-34)이고
+      // 이번 주에도 두 반 모두 같은 과목이면 한 묶음으로 본다.
+      links: function (k) {
+        // 선택과목 묶음(2A 등)은 그 학년 모든 반이 이번 주에도 같은 글자(…A) 과목일 때 한 묶음으로 본다.
+        return (book.baseAt.get(k) || []).map(function (e) {
+          var g = /^\d([A-E])$/.exec(e.label);
+          return { cls: labelClasses(e.label, book), test: g ? function (x) { return new RegExp(g[1] + "$").test(x.subj.trim()); }
+                                                           : function (x) { return subjKey(x.subj) === subjKey(e.subj); } };
+        }).filter(function (g) {
+          return g.cls.length > 1 && g.cls.every(function (c) { var x = book.classRows[c] && cellsOf(c).get(k); return x && g.test(x); });
+        }).map(function (g) { return g.cls; }).concat(gradeGroups(k));
+      } };
+    // 결보강으로 자리를 옮긴 선택과목 묶음은 기초시간표와 시간이 다르다 → 이번 주 파일만 보고, 한 학년 모든 반이 같은 글자(…A) 과목이면 묶음
+    function gradeGroups(k) {
+      var by = {};
+      Object.keys(book.classRows).forEach(function (c) { var g = c.split("-")[0]; (by[g] = by[g] || []).push(c); });
+      return Object.keys(by).map(function (g) {
+        var cls = by[g].sort(), lt = cls.map(function (c) { var x = cellsOf(c).get(k), m = x && /[가-힣0-9]([A-E])$/.exec(x.subj.trim()); return m ? m[1] : ""; });
+        return cls.length > 1 && lt[0] && lt.every(function (x) { return x === lt[0]; }) ? cls : null;
+      }).filter(Boolean);
+    }
+  }
   var days = book.days.map(function (d, i) {
     var x = new Date(book.monday.getFullYear(), book.monday.getMonth(), book.monday.getDate() + off * 7 + i);
     return { name: d.name, m: x.getMonth() + 1, d: x.getDate(), max: d.hmax, off: false, notes: [] };
@@ -810,33 +840,73 @@ function dayRun(slots, day) {   // 그날 가장 긴 연속 수업 수, 그날 �
   ps.forEach(function (p) { run = p === prev + 1 ? run + 1 : 1; prev = p; best = Math.max(best, run); });
   return { run: best, load: ps.length };
 }
+function slotIndex(src) {   // 칸 → 그 시간 수업 목록 [{t 선생님, subj, classes}]
+  if (src._idx) return src._idx;
+  var idx = new Map();
+  src.lessons.forEach(function (m, t) { m.forEach(function (l, k) { if (!idx.has(k)) idx.set(k, []); idx.get(k).push({ t: t, subj: l.subj, classes: l.classes }); }); });
+  return (src._idx = idx);
+}
+function blockAt(src, s, K0) {   // s 시간에 K0 반들과 얽힌 수업 묶음: 분반처럼 함께 움직여야 하는 반·선생님을 끝까지 모은다
+  var K = new Set(K0), es = slotIndex(src).get(s) || [], used = [], grown = true;
+  while (grown) {
+    grown = false;
+    es.forEach(function (e) {
+      if (used.indexOf(e) >= 0 || !e.classes.some(function (c) { return K.has(c); })) return;
+      used.push(e); grown = true;
+      e.classes.forEach(function (c) { K.add(c); });
+    });
+    (src.links ? src.links(s) : []).forEach(function (g) {
+      if (g.some(function (c) { return K.has(c); }) && g.some(function (c) { return !K.has(c); })) { g.forEach(function (c) { K.add(c); }); grown = true; }
+    });
+  }
+  return { K: K, es: used };
+}
+function uniqT(es) { return Array.from(new Set(es.map(function (e) { return e.t; }))); }
+/* 교체 후보: s1의 수업 묶음과 s2의 수업 묶음을 통째로 맞바꾼다.
+   분반·묶음 수업이면 같이 들어가는 반과 선생님을 모두 포함하고, 들어가는 모든 선생님이 옮겨 갈 시간에 비어 있어야 한다
+   (그 시간 수업이 같은 묶음 안에서 함께 바뀌는 경우는 괜찮다). 창체가 끼면 뺀다. 묶음이 4개 반을 넘으면 뺀다. */
 function findSwaps(src, A, s1, opt) {
-  var L = src.lessons, mine = L.get(A) || new Map(), les = mine.get(s1);
+  var mine = src.lessons.get(A) || new Map(), les = mine.get(s1);
   if (!les) return null;
-  var cls = les.classes[0], absent = src.absent, list = [], skipped = 0;
-  var d1 = +s1.split(",")[0], p1 = +s1.split(",")[1];
-  src.cells(cls).forEach(function (cell, s2) {
-    if (s2 === s1) return;
-    var d2 = +s2.split(",")[0], p2 = +s2.split(",")[1], day = src.days[d2];
-    if (day.off || p2 > day.max || !opt.days[d2] || (opt.skipPast && isPastDay(day))) return;
-    if (cell.parts.length !== 1 || cell.names.length !== 1) return;          // 분반·두 수업이 든 칸
-    var subj = cell.parts[0].subj, B = cell.names[0];
-    if (/^창체/.test(subj) || hideTeacher(cls, subj) || B === A) return;
-    var theirs = L.get(B) || new Map(), bl = theirs.get(s2);
-    if (!bl || bl.classes.length > 1) return;                                // 여러 반 묶음 수업
-    if (mine.has(s2) || theirs.has(s1)) return;                               // 두 분 모두 그 시간에 비어 있어야 한다
-    if (absent[d1].has(B) || absent[d2].has(B)) { skipped++; return; }
-    var aSlots = new Set(mine.keys()), bSlots = new Set(theirs.keys());
-    aSlots.delete(s1); aSlots.add(s2); bSlots.delete(s2); bSlots.add(s1);
-    var ra = dayRun(aSlots, d2), rb = dayRun(bSlots, d1);
-    // 점수(낮을수록 좋음): 같은 날 우선 → 가까운 날·교시 → 3연강 이상이 생기면 뒤로
-    var score = (d1 === d2 ? 0 : 10 + Math.abs(d1 - d2) * 2) + Math.abs(p1 - p2) * 0.5
-      + (ra.run >= 3 ? 3 : 0) + (rb.run >= 3 ? 3 : 0) + (ra.run >= 4 ? 5 : 0) + (rb.run >= 4 ? 5 : 0);
-    list.push({ s2: s2, d2: d2, p2: p2, B: B, subj: subj, kind: d1 === d2 ? "time" : "date", ra: ra, rb: rb,
-                warnA: d2 !== d1 && absent[d2].has(A), score: score });
+  var d1 = +s1.split(",")[0], p1 = +s1.split(",")[1], list = [], skipped = 0;
+  var home = blockAt(src, s1, les.classes);
+  src.days.forEach(function (day, d2) {
+    if (day.off || !opt.days[d2] || (opt.skipPast && isPastDay(day))) return;
+    for (var p2 = 1; p2 <= day.max; p2++) {
+      var s2 = d2 + "," + p2; if (s2 === s1) continue;
+      // 두 시간의 묶음이 같은 반들이 될 때까지 넓힌다
+      var K = new Set(home.K), b1, b2;
+      for (var it = 0; it < 4; it++) { b1 = blockAt(src, s1, K); b2 = blockAt(src, s2, b1.K); if (b2.K.size === b1.K.size) break; K = b2.K; }
+      if (b2.K.size !== b1.K.size || b1.K.size > 10) continue;   // 한 학년(8개 반) 선택과목 묶음까지
+      var Ks = Array.from(b1.K).sort();
+      if (!Ks.every(function (c) { return b2.es.some(function (e) { return e.classes.indexOf(c) >= 0; }); })) continue;   // 그 반이 빈 시간
+      if (b2.es.some(function (e) { return /^창체/.test(e.subj); }) || b1.es.some(function (e) { return e.t !== A && /^창체/.test(e.subj); })) continue;
+      var T1 = uniqT(b1.es), T2 = uniqT(b2.es);
+      if (T1.length === T2.length && T1.every(function (t) { return T2.indexOf(t) >= 0; })) continue;   // 같은 선생님끼리
+      var free = function (t, s, blk) { var l = (src.lessons.get(t) || new Map()).get(s); return !l || blk.es.some(function (e) { return e.t === t; }); };
+      if (!T1.every(function (t) { return free(t, s2, b2); }) || !T2.every(function (t) { return free(t, s1, b1); })) continue;
+      if (T1.concat(T2).some(function (t) { return t !== A && (src.absent[d1].has(t) || src.absent[d2].has(t)); })) { skipped++; continue; }
+      // 옮겨 가는 선생님마다 그날 수업 수·연강
+      var moves = [], pen = 0;
+      T1.concat(T2).forEach(function (t) {
+        var in1 = T1.indexOf(t) >= 0, in2 = T2.indexOf(t) >= 0;
+        if (in1 && in2) return;
+        if (moves.some(function (m) { return m.t === t; })) return;
+        var slots = new Set((src.lessons.get(t) || new Map()).keys()), from = in1 ? s1 : s2, to = in1 ? s2 : s1;
+        slots.delete(from); slots.add(to);
+        var x = dayRun(slots, +to.split(",")[0]);
+        pen += (x.run >= 3 ? 3 : 0) + (x.run >= 4 ? 5 : 0);
+        moves.push({ t: t, from: from, to: to, x: x });
+      });
+      var score = (d1 === d2 ? 0 : 10 + Math.abs(d1 - d2) * 2) + Math.abs(p1 - p2) * 0.5 + pen
+        + Math.max(0, moves.length - 2) * 2 + (Ks.length - 1) * 3;
+      list.push({ s2: s2, d2: d2, p2: p2, K: Ks, out: b1.es, back: b2.es, moves: moves, kind: d1 === d2 ? "time" : "date",
+                  warnA: d2 !== d1 && src.absent[d2].has(A), score: score });
+    }
   });
   list.sort(function (a, b) { return a.score - b.score || a.d2 - b.d2 || a.p2 - b.p2; });
-  return { cls: cls, subj: les.subj, multi: les.classes.length > 1, d1: d1, p1: p1, list: list, skipped: skipped };
+  var homeK = Array.from(home.K).sort();
+  return { cls: homeK[0], classes: homeK, subj: les.subj, multi: homeK.length > 1, teachers: uniqT(home.es), d1: d1, p1: p1, list: list, skipped: skipped };
 }
 function slotText(days, d, p) { var x = days[d]; return x.name + "(" + dateText(x) + ") " + p + "교시"; }
 /* 이름은 다 입력해서 명단과 정확히 같을 때만 바로 찾는다(입력 중 화면이 바뀌지 않게). 부분 이름은 Enter·찾기 버튼으로 */
@@ -927,7 +997,7 @@ function drawSwap() {
         else if (!l) c = el("div", "sw-c empty");
         else {
           c = el("button", "sw-c" + (k === sw.key ? " me" : "")); c.type = "button";
-          c.appendChild(el("b", "", l.subj)); c.appendChild(el("span", "", l.classes.join("·")));
+          c.appendChild(el("b", "", l.subj)); c.appendChild(el("span", "", l.label || l.classes.join("·")));
           if (k === sw.key) c.appendChild(el("span", "tagme", "바꿀 수업"));
           c.onclick = function () { sw.key = k; sw.pick = -1; sw.all = false; pick(); results(); };
         }
@@ -936,57 +1006,78 @@ function drawSwap() {
     }
     picker.appendChild(g);
   }
+  function blockText(es) {   // "수학(김OO·이OO) 1-3·1-4 / 국어(박OO) 1-5"
+    var g = new Map();
+    es.forEach(function (e) { var k = e.subj + "|" + e.classes.join("·"); if (!g.has(k)) g.set(k, []); if (g.get(k).indexOf(e.t) < 0) g.get(k).push(e.t); });
+    return Array.from(g.keys()).map(function (k) { var a = k.split("|"); return a[0] + "(" + g.get(k).join("·") + ") " + a[1]; }).join(" / ");
+  }
   function results() {
     s3.textContent = "";
     var A = current, empty = function () { s3.appendChild(el("p", "muted", "위 시간표에서 바꿀 수업을 누르면 후보가 나옵니다.")); };
     if (!A || !sw.key) return empty();
     var r = findSwaps(src, A, sw.key, sw);
     if (!r) { sw.key = ""; return empty(); }
-    if (!b.classRows[r.cls]) { s3.appendChild(el("p", "err", r.cls + " 선택과목 묶음 수업이라 교체 후보를 찾을 수 없습니다.")); return; }
-    var h3 = el("h4", "", "③ 교체 후보"); h3.appendChild(el("small", "", r.cls + "반 시간표 · 번호가 추천 순서")); s3.appendChild(h3);
-    s3.appendChild(el("p", "muted", slotText(days, r.d1, r.p1) + " " + r.subj + " " + r.cls + " (" + A + ")와 맞바꿀 수 있는 수업 " + r.list.length + "개"
+    var real = r.classes.filter(function (c) { return b.classRows[c]; });
+    if (!real.length) { s3.appendChild(el("p", "err", r.classes.join("·") + " 선택과목 묶음 수업이라 교체 후보를 찾을 수 없습니다.")); return; }
+    var h3 = el("h4", "", "③ 교체 후보"); h3.appendChild(el("small", "", real.join("·") + "반 시간표 · 번호가 추천 순서")); s3.appendChild(h3);
+    s3.appendChild(el("p", "muted", slotText(days, r.d1, r.p1) + " " + r.subj + " " + r.classes.join("·") + " (" + r.teachers.join("·") + ")와 맞바꿀 수 있는 수업 " + r.list.length + "개"
       + (r.skipped ? " · 공지(출장·연가 등)로 뺀 후보 " + r.skipped + "개" : "")));
-    if (r.multi) s3.appendChild(el("p", "err", "여러 반(" + (src.lessons.get(A).get(sw.key).classes.join("·")) + ")이 함께 듣는 분반·묶음 수업입니다. " + r.cls
-      + "반 기준으로만 찾았으니, 함께 들어가는 다른 선생님과 다른 반 시간표도 꼭 확인하세요."));
-    var shown = sw.all ? r.list : r.list.slice(0, 5), rank = new Map();
-    shown.forEach(function (c, i) { rank.set(c.s2, i); });
-    // 학급 시간표 위에 후보 표시
-    var cells = src.cells(r.cls), g = el("div", "sw-grid");
-    dayHeads(g);
-    for (var p = 1; p <= 7; p++) {
-      g.appendChild(el("div", "ph", String(p)));
-      days.forEach(function (d, i) {
-        var k = i + "," + p, cell = cells.get(k), c, n = rank.get(k);
-        if (d.off || p > d.max) { g.appendChild(el("div", "sw-c off")); return; }
-        if (!cell) { g.appendChild(el("div", "sw-c empty")); return; }
-        if (k === sw.key) c = el("div", "sw-c me");
-        else if (n != null) {
-          var cd = shown[n];
-          c = el("button", "sw-c cand k-" + cd.kind + (n === sw.pick ? " picked" : "")); c.type = "button";
-          c.appendChild(el("span", "no", String(n + 1)));
-          c.onclick = function () { sw.pick = n; results(); };
-        } else c = el("div", "sw-c dim");
-        var shownNames = cell.parts.filter(function (x) { return !hideTeacher(r.cls, x.subj); });
-        c.appendChild(el("b", "", cell.subj));
-        var nm = [].concat.apply([], shownNames.map(function (x) { return x.names; })).join("·"); if (nm) c.appendChild(el("span", "", nm));
-        if (k === sw.key) c.appendChild(el("span", "tagme", "바꿀 수업"));
-        g.appendChild(c);
-      });
-    }
-    s3.appendChild(g);
+    if (r.multi) s3.appendChild(el("p", "muted", "분반·묶음 수업입니다. " + r.classes.join("·") + "반과 함께 들어가는 선생님(" + r.teachers.join("·")
+      + ")이 모두 옮겨 갈 시간에 비어 있는 후보만 골랐습니다."));
+    if (!r.list.length) { s3.appendChild(el("p", "err", "조건에 맞는 교체 후보가 없습니다." + (r.multi ? " 분반에 들어가는 선생님이 모두 비는 시간이 없습니다." : "") + " 요일을 더 켜 보거나 보강을 검토해 주세요.")); }
+    var shown = sw.all ? r.list : r.list.slice(0, 5);
+    // 학급 시간표(분반이면 반마다) 위에 후보 표시
+    real.forEach(function (cls) {
+      var cells = src.cells(cls), g = el("div", "sw-grid");
+      if (real.length > 1) s3.appendChild(el("b", "", cls + "반"));
+      dayHeads(g);
+      for (var p = 1; p <= 7; p++) {
+        g.appendChild(el("div", "ph", String(p)));
+        days.forEach(function (d, i) {
+          var k = i + "," + p, cell = cells.get(k), c;
+          var n = shown.findIndex(function (x) { return x.s2 === k && x.K.indexOf(cls) >= 0; });
+          if (d.off || p > d.max) { g.appendChild(el("div", "sw-c off")); return; }
+          if (!cell) { g.appendChild(el("div", "sw-c empty")); return; }
+          if (k === sw.key) c = el("div", "sw-c me");
+          else if (n >= 0) {
+            c = el("button", "sw-c cand k-" + shown[n].kind + (n === sw.pick ? " picked" : "")); c.type = "button";
+            c.appendChild(el("span", "no", String(n + 1)));
+            c.onclick = function () { sw.pick = n; results(); };
+          } else c = el("div", "sw-c dim");
+          var many = cell.names.length > 3;   // 선택과목 묶음(기초시간표)은 과목·선생님이 많아 줄여 쓴다
+          c.appendChild(el("b", "", many ? "선택과목" : cell.subj));
+          var nm = /^창체/.test(cell.subj) ? "" : many ? "선생님 " + cell.names.length + "명" : cell.names.join("·"); if (nm) c.appendChild(el("span", "", nm));
+          if (k === sw.key) c.appendChild(el("span", "tagme", "바꿀 수업"));
+          g.appendChild(c);
+        });
+      }
+      s3.appendChild(g);
+    });
     var lg = el("div", "chips");
     [["time", "같은 날 시간교체"], ["date", "다른 날 날짜교체"]].forEach(function (x) { var s = el("span", "legend"); s.appendChild(el("span", "sw k-" + x[0])); s.appendChild(document.createTextNode(x[1])); lg.appendChild(s); });
     s3.appendChild(lg);
-    if (!r.list.length) { s3.appendChild(el("p", "muted", "조건에 맞는 교체 후보가 없습니다. 요일을 더 켜 보거나 보강을 검토해 주세요.")); return; }
+    if (!r.list.length) return;
     var ul = el("div", "sw-list");
     shown.forEach(function (c, i) {
       var card = el("button", "sw-card" + (i === sw.pick ? " picked" : "")); card.type = "button";
       var top = el("div", "top"); top.appendChild(el("b", "", (i + 1) + "안"));
-      top.appendChild(el("span", "kind k-" + c.kind, c.kind === "time" ? "시간교체" : "날짜교체")); card.appendChild(top);
-      card.appendChild(el("div", "main", slotText(days, r.d1, r.p1) + " " + r.subj + "(" + A + ")  ↔  " + slotText(days, c.d2, c.p2) + " " + c.subj + "(" + c.B + ")"));
-      var dl = function (t, from, to, x) { return t + " 선생님: " + from + " → " + to + " · 그날 " + x.load + "시간" + (x.run >= 3 ? ", " + x.run + "연강" : ""); };
-      card.appendChild(el("div", "det", dl(A, slotText(days, r.d1, r.p1), slotText(days, c.d2, c.p2), c.ra)));
-      card.appendChild(el("div", "det", dl(c.B, slotText(days, c.d2, c.p2), slotText(days, r.d1, r.p1), c.rb)));
+      top.appendChild(el("span", "kind k-" + c.kind, c.kind === "time" ? "시간교체" : "날짜교체"));
+      if (c.K.length > 1) top.appendChild(el("span", "det", (c.K.length > 4 ? c.K[0] + "~" + c.K[c.K.length - 1] : c.K.join("·")) + "반 함께 · 선생님 " + c.moves.length + "명 이동"));
+      card.appendChild(top);
+      card.appendChild(el("div", "main", slotText(days, r.d1, r.p1) + " " + blockText(c.out)));
+      card.appendChild(el("div", "main", "↔ " + slotText(days, c.d2, c.p2) + " " + blockText(c.back)));
+      if (c.moves.length <= 6) c.moves.forEach(function (m) {
+        var f = m.from.split(",").map(Number), t = m.to.split(",").map(Number);
+        card.appendChild(el("div", "det", m.t + " 선생님: " + slotText(days, f[0], f[1]) + " → " + slotText(days, t[0], t[1]) + " · 그날 " + m.x.load + "시간" + (m.x.run >= 3 ? ", " + m.x.run + "연강" : "")));
+      });
+      else {   // 선택과목 묶음처럼 선생님이 많으면 방향별로 묶어서 적는다
+        [sw.key, c.s2].forEach(function (from) {
+          var ms = c.moves.filter(function (m) { return m.from === from; }), to = from === sw.key ? c.s2 : sw.key, f = from.split(",").map(Number), t = to.split(",").map(Number);
+          if (ms.length) card.appendChild(el("div", "det", slotText(days, f[0], f[1]) + " → " + slotText(days, t[0], t[1]) + ": " + ms.map(function (m) { return m.t; }).join(", ")));
+        });
+        var heavy = c.moves.filter(function (m) { return m.x.run >= 3; });
+        if (heavy.length) card.appendChild(el("div", "det", "연강 생김: " + heavy.map(function (m) { return m.t + " " + m.x.run + "연강"; }).join(", ")));
+      }
       if (c.warnA) card.appendChild(el("div", "warn", "그날 공지에 " + A + " 선생님 일정(출장 등)이 있습니다. 확인하세요."));
       card.onclick = function () { sw.pick = i; results(); };
       ul.appendChild(card);
