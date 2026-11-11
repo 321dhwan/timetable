@@ -451,6 +451,8 @@ function cleanNotes(notes, cls) {
 /* ============================== 화면용 데이터(뷰 모델) ============================== */
 function dateText(d) { return d.m ? d.m + "/" + d.d : ""; }
 function rangeText(b) { return b.days[0].m ? dateText(b.days[0]) + " ~ " + dateText(b.days[4]) : ""; }
+/* 파일 이름에 넣는 날짜: "11/9 ~ 11/13" → "(11.9.-11.13.)" */
+function fileRange(r) { return r ? "(" + r.split(/\s*~\s*/).map(function (d) { return d.replace("/", ".") + "."; }).join("-") + ")" : ""; }
 /* 화면·이미지에 크게 보여 줄 날짜: "10월 26일(월) ~ 10월 30일(금)" (파일 이름에는 rangeText를 쓴다) */
 function rangeLabel(b) {
   var f = function (d) { return d.m + "월 " + d.d + "일(" + d.name + ")"; };
@@ -798,7 +800,7 @@ async function savePNG() {
   var status = $("status"); status.textContent = "이미지를 만드는 중…"; $("save").disabled = true;
   try {
     var blob = await renderPNG(vm);
-    var fname = (vm.kind === "teacher" ? vm.title.replace(/\s+주간 시간표$/, "") + "_" : vm.title.replace(/반 주간 시간표$/, "") + "반_") + "주간시간표" + (vm.range ? "_" + vm.range.replace(/\s|~/g, "").replace(/\//g, "") : "") + ".png";
+    var fname = (vm.kind === "teacher" ? vm.title.replace(/\s+주간 시간표$/, "") + "_" : vm.title.replace(/반 주간 시간표$/, "") + "반_") + "주간시간표" + fileRange(vm.range) + ".png";
     $("previewimg").src = URL.createObjectURL(blob); $("preview").hidden = false;
     var dl = null; try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
     if (dl) {
