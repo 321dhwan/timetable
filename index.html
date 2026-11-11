@@ -132,6 +132,41 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline:3px so
   #printarea { display:flex; justify-content:center; }
   #printarea img { width:100%; max-height:277mm; object-fit:contain; }
 }
+/* 수업 교체 찾기 */
+.sw-step { display:flex; flex-direction:column; gap:8px; }
+.sw-step > h4 { margin:0; font-size:15px; }
+.sw-step > h4 small { font-weight:400; color:var(--muted); font-size:12.5px; margin-left:6px; }
+.sw-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:13.5px; }
+.sw-row input[type=text] { font:inherit; font-size:16px; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 10px; width:12em; }
+.sw-grid { display:grid; grid-template-columns:24px repeat(5,minmax(0,1fr)); gap:4px; }
+.sw-c { font:inherit; min-height:50px; border-radius:8px; padding:3px 2px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:0; text-align:center; background:var(--cell); color:var(--cell-f); border:0; min-width:0; position:relative; line-height:1.25; }
+.sw-c b { font-size:13.5px; overflow-wrap:anywhere; }
+.sw-c span { font-size:11.5px; overflow-wrap:anywhere; }
+.sw-c.empty { background:var(--surface); border:1px dashed var(--line); }
+.sw-c.off { background:var(--off); opacity:.55; }
+.sw-c.dim { opacity:.45; }
+button.sw-c { cursor:pointer; }
+.sw-c.me { box-shadow:inset 0 0 0 3px var(--warn); background:var(--surface); color:var(--fg); }
+.sw-c.cand { box-shadow:inset 0 0 0 2px var(--accent); }
+.sw-c.cand.k-time { background:var(--k-time); color:var(--k-time-f); }
+.sw-c.cand.k-date { background:var(--k-date); color:var(--k-date-f); }
+.sw-c.picked { box-shadow:inset 0 0 0 3px var(--fg); }
+.sw-c .no { position:absolute; top:2px; left:3px; font-size:11px; font-weight:700; background:var(--accent); color:var(--accent-fg);
+  border-radius:99px; min-width:17px; height:17px; line-height:17px; padding:0 4px; }
+.sw-c .tagme { font-size:10.5px; font-weight:700; color:var(--warn); }
+.sw-list { display:flex; flex-direction:column; gap:8px; }
+.sw-card { font:inherit; text-align:left; background:var(--surface); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+  display:flex; flex-direction:column; gap:3px; cursor:pointer; }
+.sw-card.picked { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+.sw-card .top { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.sw-card .top b { font-size:16px; }
+.sw-card .kind { font-size:12px; font-weight:700; border-radius:99px; padding:1px 9px; }
+.sw-card .kind.k-time { background:var(--k-time); color:var(--k-time-f); }
+.sw-card .kind.k-date { background:var(--k-date); color:var(--k-date-f); }
+.sw-card .main { font-size:14.5px; font-weight:500; }
+.sw-card .det { font-size:13px; color:var(--muted); }
+.sw-card .warn { font-size:12.5px; color:var(--warn); }
 @media (max-width:520px) { .form { grid-template-columns:1fr 1fr; } .form label:first-child { grid-column:1 / -1; } }
 </style>
 <script>
@@ -181,6 +216,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" id="tab-t" aria-selected="true">내 시간표</button>
       <button class="tab" role="tab" id="tab-c" aria-selected="false">우리 반 시간표</button>
+      <button class="tab" role="tab" id="tab-s" aria-selected="false">수업 교체 찾기</button>
     </div>
     <div class="toolbar" style="margin-top:12px">
       <div class="btns">
@@ -299,7 +335,7 @@ function parseBook(sheets, fileName) {
     r3.forEach(function (v, c) { if (c >= c0 && c < c1 && /^\s*\d+\s*$/.test(v)) { colMap.set(c, [i, +v]); max = Math.max(max, +v); } });
     hdr.forEach(function (v, c) { if (c > c0 && c < c1 && v.trim()) notes.push(v.trim()); });
     var dm = /(\d+)\/(\d+)/.exec(ds[1]), off = /^\s*\/\s*\(/.test(ds[1]);   // off: 그 주에 수업이 없는 요일
-    days.push({ name: DAYS[i], m: dm ? +dm[1] : 0, d: dm ? +dm[2] : 0, max: off ? 0 : (max || 7), off: off, notes: off ? [] : notes });
+    days.push({ name: DAYS[i], m: dm ? +dm[1] : 0, d: dm ? +dm[2] : 0, max: off ? 0 : (max || 7), hmax: max || 7, off: off, notes: off ? [] : notes });
   });
   var labelCol = Math.min.apply(null, Array.from(colMap.keys())) - 1;   // 학급·교사 이름이 적힌 열(결보강 파일은 B, 공개수업 파일은 A)
   var classRows = {};
@@ -322,9 +358,10 @@ function parseBook(sheets, fileName) {
   var title = ((cellAt(cur.grid, 1, 2) || cellAt(cur.grid, 1, 1)) || "");
   var ym = /(20\d\d)학년도/.exec(title) || /(20\d\d)학년도/.exec(fileName || "");
   var k0 = days.findIndex(function (d) { return d.m; });   // 날짜가 적힌 첫 요일(월요일이 연휴일 수도 있다)
+  var monday = null;
   if (k0 >= 0) {
     var y = ym ? +ym[1] + (days[k0].m < 3 ? 1 : 0) : new Date().getFullYear();
-    var mon = new Date(y, days[k0].m - 1, days[k0].d - k0);
+    var mon = new Date(y, days[k0].m - 1, days[k0].d - k0); monday = mon;
     days.forEach(function (d, i) { var x = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i); d.m = x.getMonth() + 1; d.d = x.getDate(); });
   }
   // 1행 범례 칸(시간교체/날짜교체/수업보강)의 배경색 = '바뀐 수업' 표시 색
@@ -359,7 +396,7 @@ function parseBook(sheets, fileName) {
   var roster = Array.from(new Set(teacherNames));   // 명단은 올린 파일의 교사시간표에서만 가져온다
   var tokens = new Set();                              // 파일에 실제로 쓰인 선생님 표기
   cur.grid.forEach(function (cols, r) { if (r >= 4) cols.forEach(function (v) { if (v.indexOf("/") >= 0) rawLessons(v).forEach(function (l) { l.toks.forEach(function (t) { tokens.add(t); }); }); }); });
-  var book = { changeColors: changeColors, changeKinds: changeKinds, labelCol: labelCol, cur: cur, base: base, classRows: classRows, colMap: colMap, days: days, title: title, issued: issued,
+  var book = { monday: monday, changeColors: changeColors, changeKinds: changeKinds, labelCol: labelCol, cur: cur, base: base, classRows: classRows, colMap: colMap, days: days, title: title, issued: issued,
                baseAt: baseAt, teacherRows: teacherRows, teacherNames: teacherNames, teacherSubjects: teacherSubjects, roster: roster, tokens: tokens, fileName: fileName };
   return book;
 }
@@ -691,6 +728,292 @@ async function renderPNG(vm) {
   return new Promise(function (res) { cv.toBlob(res, "image/png"); });
 }
 
+/* ============================== 수업 교체 찾기 ==============================
+   바꾸고 싶은 수업(선생님 A, 학급 C, 시간 s1)을 고르면, 같은 학급 C의 다른 시간 s2 수업(선생님 B)과 맞바꾸는 후보를 찾는다.
+   조건: A는 s2에 수업이 없고, B는 s1에 수업이 없다. 창체·분반·여러 반 묶음 수업은 상대에서 뺀다.
+   이번 주는 올린 결보강 파일(공지의 출장·연가 등 반영), 다음 주부터는 파일 속 기초시간표(교사시간표)를 기준으로 찾는다. */
+function lessonMap(book) {   // 이번 주: 선생님 → (칸 → {과목, 학급들})
+  if (book._lessons) return book._lessons;
+  var m = new Map();
+  Object.keys(book.classRows).forEach(function (cls) {
+    classCells(book, cls).forEach(function (cell, key) {
+      cell.parts.forEach(function (p) {
+        p.names.forEach(function (n) {
+          if (!m.has(n)) m.set(n, new Map());
+          var t = m.get(n); if (!t.has(key)) t.set(key, { subj: p.subj, classes: [] });
+          if (t.get(key).classes.indexOf(cls) < 0) t.get(key).classes.push(cls);
+        });
+      });
+    });
+  });
+  return (book._lessons = m);
+}
+function labelClasses(l) { var m = /^(\d)-(\d+)$/.exec(l); return m ? m[2].split("").map(function (n) { return m[1] + "-" + n; }) : [l]; }   // 1-56 → 1-5, 1-6
+function baseLessons(book) {   // 기초시간표: 선생님 → (칸 → {과목, 학급들})
+  if (book._baseLessons) return book._baseLessons;
+  var m = new Map();
+  book.baseAt.forEach(function (list, key) {
+    list.forEach(function (e) {
+      if (!m.has(e.name)) m.set(e.name, new Map());
+      var t = m.get(e.name); if (!t.has(key)) t.set(key, { subj: e.subj, classes: [] });
+      labelClasses(e.label).forEach(function (c) { if (t.get(key).classes.indexOf(c) < 0) t.get(key).classes.push(c); });
+    });
+  });
+  return (book._baseLessons = m);
+}
+function baseClassCells(book, cls) {   // 기초시간표로 만든 학급 시간표(칸 모양은 classCells와 같다)
+  var out = new Map();
+  book.baseAt.forEach(function (list, key) {
+    var es = list.filter(function (e) { return labelOk(e.label, cls, e.subj); });
+    if (!es.length) return;
+    out.set(key, { subj: Array.from(new Set(es.map(function (e) { return e.subj; }))).join("·"),
+                   names: es.map(function (e) { return e.name; }), parts: es.map(function (e) { return { subj: e.subj, names: [e.name] }; }) });
+  });
+  return out;
+}
+function absentByDay(book) {   // 요일별로 공지에 출장·연가 등이 적힌 선생님
+  if (book._absent) return book._absent;
+  return (book._absent = book.days.map(function (d) {
+    var set = new Set();
+    d.notes.join("\n").split(/\r?\n|,(?![^()]*\))/).forEach(function (seg) {
+      if (!PRIVATE_RE.test(seg)) return;
+      var toks = (seg.match(/[가-힣]{2,3}(?=T)/g) || []).slice();
+      seg.replace(/\(([^)]*)\)/g, function (m, inner) {
+        inner.split(/[,·\s]+/).forEach(function (t) { t = t.replace(/T$/, ""); if (/^[가-힣]{2,3}$/.test(t)) toks.push(t); });
+        return "";
+      });
+      toks.forEach(function (t) { var n = fullName(book, t, ""); if (book.roster.indexOf(n) >= 0) set.add(n); });
+    });
+    return set;
+  }));
+}
+/* 고른 주의 자료: off=0 이번 주(결보강 파일), off>=1 그 뒤 주(기초시간표) */
+function weekSource(book, off) {
+  if (!off) return { off: 0, base: false, days: book.days, lessons: lessonMap(book), absent: absentByDay(book),
+                     cells: function (cls) { return classCells(book, cls); } };
+  var days = book.days.map(function (d, i) {
+    var x = new Date(book.monday.getFullYear(), book.monday.getMonth(), book.monday.getDate() + off * 7 + i);
+    return { name: d.name, m: x.getMonth() + 1, d: x.getDate(), max: d.hmax, off: false, notes: [] };
+  });
+  return { off: off, base: true, days: days, lessons: baseLessons(book), absent: days.map(function () { return new Set(); }),
+           cells: function (cls) { return baseClassCells(book, cls); } };
+}
+function isPastDay(d) {
+  if (!d.m) return false;
+  var t = new Date(), a = d.m * 100 + d.d, b = (t.getMonth() + 1) * 100 + t.getDate();
+  return Math.abs(d.m - (t.getMonth() + 1)) <= 2 && a < b;
+}
+function dayRun(slots, day) {   // 그날 가장 긴 연속 수업 수, 그날 수업 수
+  var ps = []; slots.forEach(function (k) { var a = k.split(","); if (+a[0] === day) ps.push(+a[1]); });
+  ps.sort(function (x, y) { return x - y; });
+  var run = 0, best = 0, prev = -9;
+  ps.forEach(function (p) { run = p === prev + 1 ? run + 1 : 1; prev = p; best = Math.max(best, run); });
+  return { run: best, load: ps.length };
+}
+function findSwaps(src, A, s1, opt) {
+  var L = src.lessons, mine = L.get(A) || new Map(), les = mine.get(s1);
+  if (!les) return null;
+  var cls = les.classes[0], absent = src.absent, list = [], skipped = 0;
+  var d1 = +s1.split(",")[0], p1 = +s1.split(",")[1];
+  src.cells(cls).forEach(function (cell, s2) {
+    if (s2 === s1) return;
+    var d2 = +s2.split(",")[0], p2 = +s2.split(",")[1], day = src.days[d2];
+    if (day.off || p2 > day.max || !opt.days[d2] || (opt.skipPast && isPastDay(day))) return;
+    if (cell.parts.length !== 1 || cell.names.length !== 1) return;          // 분반·두 수업이 든 칸
+    var subj = cell.parts[0].subj, B = cell.names[0];
+    if (/^창체/.test(subj) || hideTeacher(cls, subj) || B === A) return;
+    var theirs = L.get(B) || new Map(), bl = theirs.get(s2);
+    if (!bl || bl.classes.length > 1) return;                                // 여러 반 묶음 수업
+    if (mine.has(s2) || theirs.has(s1)) return;                               // 두 분 모두 그 시간에 비어 있어야 한다
+    if (absent[d1].has(B) || absent[d2].has(B)) { skipped++; return; }
+    var aSlots = new Set(mine.keys()), bSlots = new Set(theirs.keys());
+    aSlots.delete(s1); aSlots.add(s2); bSlots.delete(s2); bSlots.add(s1);
+    var ra = dayRun(aSlots, d2), rb = dayRun(bSlots, d1);
+    // 점수(낮을수록 좋음): 같은 날 우선 → 가까운 날·교시 → 3연강 이상이 생기면 뒤로
+    var score = (d1 === d2 ? 0 : 10 + Math.abs(d1 - d2) * 2) + Math.abs(p1 - p2) * 0.5
+      + (ra.run >= 3 ? 3 : 0) + (rb.run >= 3 ? 3 : 0) + (ra.run >= 4 ? 5 : 0) + (rb.run >= 4 ? 5 : 0);
+    list.push({ s2: s2, d2: d2, p2: p2, B: B, subj: subj, kind: d1 === d2 ? "time" : "date", ra: ra, rb: rb,
+                warnA: d2 !== d1 && absent[d2].has(A), score: score });
+  });
+  list.sort(function (a, b) { return a.score - b.score || a.d2 - b.d2 || a.p2 - b.p2; });
+  return { cls: cls, subj: les.subj, multi: les.classes.length > 1, d1: d1, p1: p1, list: list, skipped: skipped };
+}
+function slotText(days, d, p) { var x = days[d]; return x.name + "(" + dateText(x) + ") " + p + "교시"; }
+/* 이름은 다 입력해서 명단과 정확히 같을 때만 바로 찾는다(입력 중 화면이 바뀌지 않게). 부분 이름은 Enter·찾기 버튼으로 */
+function exactName(book, v) { v = (v || "").replace(/\s+/g, ""); return (book.teacherNames.length ? book.teacherNames : book.roster).indexOf(v) >= 0; }
+
+function drawSwap() {
+  var b = state.book, sheet = $("sheet");
+  sheet.textContent = ""; $("save").disabled = $("print").disabled = true; $("mergebox").hidden = true; $("preview").hidden = true;
+  var sw = state.swap || (state.swap = { name: state.name || "", key: "", days: [true, true, true, true, true], skipPast: true, all: false, pick: -1, week: 0 });
+  if (!b.monday || !b.baseAt.size) sw.week = 0;
+  var src = weekSource(b, sw.week), days = src.days;
+  var wr = function (ds) { return ds[0].m ? dateText(ds[0]) + " ~ " + dateText(ds[4]) : ""; };
+  var head = el("div");
+  var lbl = days[0].m ? days[0].m + "월 " + days[0].d + "일(월) ~ " + days[4].m + "월 " + days[4].d + "일(금)" : "";
+  if (lbl) head.appendChild(el("div", "range", lbl));
+  head.appendChild(el("h3", "", "수업 교체 찾기"));
+  head.appendChild(el("p", "muted", "바꾸고 싶은 수업을 고르면, 같은 반의 다른 수업 중 두 선생님 모두 그 시간에 비어 있어 맞바꿀 수 있는 후보를 추천합니다."));
+  sheet.appendChild(head);
+
+  // ⓪ 주간 고르기
+  var s0 = el("div", "sw-step"), h0 = el("h4", "", "주간 고르기");
+  h0.appendChild(el("small", "", src.base ? "기초시간표 기준(그 주의 행사·출장·결보강은 반영되지 않음)" : "올린 결보강 파일 기준(공지의 출장·연가 반영)"));
+  s0.appendChild(h0);
+  var wrow = el("div", "sw-row");
+  var setWeek = function (w) { sw.week = w; sw.key = ""; sw.pick = -1; sw.all = false; sw.days = [true, true, true, true, true]; drawSwap(); };
+  ["이번 주", "다음 주", "다다음 주"].forEach(function (t, w) {
+    var c = el("button", "dchip", t + " " + wr(weekSource(b, w).days)); c.type = "button";
+    c.setAttribute("aria-pressed", sw.week === w ? "true" : "false");
+    c.disabled = w > 0 && (!b.monday || !b.baseAt.size);
+    c.onclick = function () { setWeek(w); };
+    wrow.appendChild(c);
+  });
+  if (b.monday && b.baseAt.size) {
+    var dl = el("label", "", "다른 날짜 "), di = el("input"); di.type = "date";
+    if (sw.week > 2) { var x = days[0]; di.value = b.monday.getFullYear() + "-" + String(x.m).padStart(2, "0") + "-" + String(x.d).padStart(2, "0"); }
+    di.onchange = function () {
+      if (!di.value) return;
+      var p = di.value.split("-").map(Number), t = new Date(p[0], p[1] - 1, p[2]);
+      var w = Math.floor(Math.round((t - b.monday) / 864e5) / 7);
+      if (w < 0) { di.value = ""; alert("올린 파일의 주간보다 앞선 날짜는 고를 수 없습니다."); return; }
+      setWeek(w);
+    };
+    dl.appendChild(di); wrow.appendChild(dl);
+  }
+  s0.appendChild(wrow); sheet.appendChild(s0);
+
+  // ① 바꿀 수업 고르기
+  var s1 = el("div", "sw-step"), h1 = el("h4", "", "① 바꿀 수업 고르기"); h1.appendChild(el("small", "", "성과 이름을 다 입력하거나 찾기를 누른 뒤, 시간표에서 수업을 누르세요"));
+  s1.appendChild(h1);
+  var row = el("div", "sw-row"), lab = el("label", "", "선생님 "), inp = el("input"), go = el("button", "btn ghost", "찾기");
+  inp.type = "text"; inp.value = sw.name; inp.placeholder = "예: 홍길동"; inp.autocomplete = "off"; inp.spellcheck = false; go.type = "button";
+  lab.appendChild(inp); row.appendChild(lab); row.appendChild(go); s1.appendChild(row);
+  var picker = el("div"); s1.appendChild(picker); sheet.appendChild(s1);
+
+  // ② 요일
+  var s2 = el("div", "sw-step"), h2 = el("h4", "", "② 바꿀 수 있는 요일"); h2.appendChild(el("small", "", "끈 요일은 후보에서 뺍니다"));
+  s2.appendChild(h2);
+  var opt = el("div", "sw-row");
+  days.forEach(function (d, i) {
+    var c = el("button", "dchip", d.name + (d.m ? " " + dateText(d) : "")); c.type = "button";
+    c.disabled = d.off; c.setAttribute("aria-pressed", sw.days[i] && !d.off ? "true" : "false");
+    c.onclick = function () { sw.days[i] = !sw.days[i]; c.setAttribute("aria-pressed", sw.days[i] ? "true" : "false"); sw.pick = -1; results(); };
+    opt.appendChild(c);
+  });
+  var pl = el("label"), pc = el("input"); pc.type = "checkbox"; pc.checked = sw.skipPast;
+  pc.onchange = function () { sw.skipPast = pc.checked; sw.pick = -1; results(); };
+  pl.appendChild(pc); pl.appendChild(document.createTextNode(" 지난 날짜 빼기")); opt.appendChild(pl);
+  s2.appendChild(opt); sheet.appendChild(s2);
+
+  var s3 = el("div", "sw-step"); sheet.appendChild(s3);
+  var current = "";   // 지금 시간표를 보여 주고 있는 선생님
+
+  function dayHeads(g) {
+    g.appendChild(el("div"));
+    days.forEach(function (d) { var h = el("div", "dh"); h.appendChild(el("b", "", d.name)); h.appendChild(el("span", "", dateText(d) || " ")); g.appendChild(h); });
+  }
+  function pick() {
+    picker.textContent = "";
+    var A = current;
+    if (!A) { picker.appendChild(el("p", "muted", sw.name.trim() && sw.tried ? "‘" + sw.name.trim() + "’ 선생님을 이 파일에서 찾지 못했습니다." : "선생님 이름을 입력하세요.")); return; }
+    var mine = src.lessons.get(A) || new Map(), g = el("div", "sw-grid");
+    dayHeads(g);
+    for (var p = 1; p <= 7; p++) {
+      g.appendChild(el("div", "ph", String(p)));
+      days.forEach(function (d, i) {
+        var k = i + "," + p, l = mine.get(k), c;
+        if (d.off || p > d.max) c = el("div", "sw-c off");
+        else if (!l) c = el("div", "sw-c empty");
+        else {
+          c = el("button", "sw-c" + (k === sw.key ? " me" : "")); c.type = "button";
+          c.appendChild(el("b", "", l.subj)); c.appendChild(el("span", "", l.classes.join("·")));
+          if (k === sw.key) c.appendChild(el("span", "tagme", "바꿀 수업"));
+          c.onclick = function () { sw.key = k; sw.pick = -1; sw.all = false; pick(); results(); };
+        }
+        g.appendChild(c);
+      });
+    }
+    picker.appendChild(g);
+  }
+  function results() {
+    s3.textContent = "";
+    var A = current, empty = function () { s3.appendChild(el("p", "muted", "위 시간표에서 바꿀 수업을 누르면 후보가 나옵니다.")); };
+    if (!A || !sw.key) return empty();
+    var r = findSwaps(src, A, sw.key, sw);
+    if (!r) { sw.key = ""; return empty(); }
+    if (!b.classRows[r.cls]) { s3.appendChild(el("p", "err", r.cls + " 선택과목 묶음 수업이라 교체 후보를 찾을 수 없습니다.")); return; }
+    var h3 = el("h4", "", "③ 교체 후보"); h3.appendChild(el("small", "", r.cls + "반 시간표 · 번호가 추천 순서")); s3.appendChild(h3);
+    s3.appendChild(el("p", "muted", slotText(days, r.d1, r.p1) + " " + r.subj + " " + r.cls + " (" + A + ")와 맞바꿀 수 있는 수업 " + r.list.length + "개"
+      + (r.skipped ? " · 공지(출장·연가 등)로 뺀 후보 " + r.skipped + "개" : "")));
+    if (r.multi) s3.appendChild(el("p", "err", "여러 반(" + (src.lessons.get(A).get(sw.key).classes.join("·")) + ")이 함께 듣는 분반·묶음 수업입니다. " + r.cls
+      + "반 기준으로만 찾았으니, 함께 들어가는 다른 선생님과 다른 반 시간표도 꼭 확인하세요."));
+    var shown = sw.all ? r.list : r.list.slice(0, 5), rank = new Map();
+    shown.forEach(function (c, i) { rank.set(c.s2, i); });
+    // 학급 시간표 위에 후보 표시
+    var cells = src.cells(r.cls), g = el("div", "sw-grid");
+    dayHeads(g);
+    for (var p = 1; p <= 7; p++) {
+      g.appendChild(el("div", "ph", String(p)));
+      days.forEach(function (d, i) {
+        var k = i + "," + p, cell = cells.get(k), c, n = rank.get(k);
+        if (d.off || p > d.max) { g.appendChild(el("div", "sw-c off")); return; }
+        if (!cell) { g.appendChild(el("div", "sw-c empty")); return; }
+        if (k === sw.key) c = el("div", "sw-c me");
+        else if (n != null) {
+          var cd = shown[n];
+          c = el("button", "sw-c cand k-" + cd.kind + (n === sw.pick ? " picked" : "")); c.type = "button";
+          c.appendChild(el("span", "no", String(n + 1)));
+          c.onclick = function () { sw.pick = n; results(); };
+        } else c = el("div", "sw-c dim");
+        var shownNames = cell.parts.filter(function (x) { return !hideTeacher(r.cls, x.subj); });
+        c.appendChild(el("b", "", cell.subj));
+        var nm = [].concat.apply([], shownNames.map(function (x) { return x.names; })).join("·"); if (nm) c.appendChild(el("span", "", nm));
+        if (k === sw.key) c.appendChild(el("span", "tagme", "바꿀 수업"));
+        g.appendChild(c);
+      });
+    }
+    s3.appendChild(g);
+    var lg = el("div", "chips");
+    [["time", "같은 날 시간교체"], ["date", "다른 날 날짜교체"]].forEach(function (x) { var s = el("span", "legend"); s.appendChild(el("span", "sw k-" + x[0])); s.appendChild(document.createTextNode(x[1])); lg.appendChild(s); });
+    s3.appendChild(lg);
+    if (!r.list.length) { s3.appendChild(el("p", "muted", "조건에 맞는 교체 후보가 없습니다. 요일을 더 켜 보거나 보강을 검토해 주세요.")); return; }
+    var ul = el("div", "sw-list");
+    shown.forEach(function (c, i) {
+      var card = el("button", "sw-card" + (i === sw.pick ? " picked" : "")); card.type = "button";
+      var top = el("div", "top"); top.appendChild(el("b", "", (i + 1) + "안"));
+      top.appendChild(el("span", "kind k-" + c.kind, c.kind === "time" ? "시간교체" : "날짜교체")); card.appendChild(top);
+      card.appendChild(el("div", "main", slotText(days, r.d1, r.p1) + " " + r.subj + "(" + A + ")  ↔  " + slotText(days, c.d2, c.p2) + " " + c.subj + "(" + c.B + ")"));
+      var dl = function (t, from, to, x) { return t + " 선생님: " + from + " → " + to + " · 그날 " + x.load + "시간" + (x.run >= 3 ? ", " + x.run + "연강" : ""); };
+      card.appendChild(el("div", "det", dl(A, slotText(days, r.d1, r.p1), slotText(days, c.d2, c.p2), c.ra)));
+      card.appendChild(el("div", "det", dl(c.B, slotText(days, c.d2, c.p2), slotText(days, r.d1, r.p1), c.rb)));
+      if (c.warnA) card.appendChild(el("div", "warn", "그날 공지에 " + A + " 선생님 일정(출장 등)이 있습니다. 확인하세요."));
+      card.onclick = function () { sw.pick = i; results(); };
+      ul.appendChild(card);
+    });
+    s3.appendChild(ul);
+    if (r.list.length > 5) {
+      var more = el("button", "btn ghost", sw.all ? "추천 5개만 보기" : "후보 모두 보기 (" + r.list.length + "개)"); more.type = "button";
+      more.onclick = function () { sw.all = !sw.all; sw.pick = -1; results(); };
+      s3.appendChild(more);
+    }
+  }
+  // 이름: 정확히 맞으면 바로, 아니면 Enter·찾기 버튼을 눌렀을 때만 바꾼다
+  var search = function (force) {
+    sw.name = inp.value;
+    var A = exactName(b, inp.value) ? inp.value.replace(/\s+/g, "") : force ? resolveName(inp.value) : null;
+    if (A === null || A === current) { if (!force) return; }
+    if (force) sw.tried = true;
+    if (A !== current) { current = A || ""; sw.key = ""; sw.pick = -1; }
+    pick(); results();
+  };
+  inp.addEventListener("input", function () { search(false); });
+  inp.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.isComposing) search(true); });
+  go.onclick = function () { search(true); };
+  current = exactName(b, sw.name) ? sw.name.replace(/\s+/g, "") : resolveName(sw.name);
+  pick(); results();
+}
+
 /* ============================== 화면 동작 ============================== */
 var $ = function (id) { return document.getElementById(id); };
 var state = { book: null, name: "", grade: "", klass: "", tab: "t", merged: {} };
@@ -727,8 +1050,10 @@ function updateMergeBox(vm) {
   });
 }
 function draw() {
-  var b = state.book, vm = currentVM();
   $("tab-t").setAttribute("aria-selected", state.tab === "t"); $("tab-c").setAttribute("aria-selected", state.tab === "c");
+  $("tab-s").setAttribute("aria-selected", state.tab === "s");
+  if (state.tab === "s" && state.book) { drawSwap(); return; }
+  var b = state.book, vm = currentVM();
   var sheet = $("sheet");
   if (!vm) {
     sheet.textContent = "";
@@ -759,7 +1084,7 @@ async function loadFile(file) {
     var sheets;
     try { sheets = await readBook(await file.arrayBuffer()); }
     catch (e0) { throw new Error("엑셀 파일을 읽지 못했습니다. 파일이 손상되었거나 엑셀(.xlsx) 형식이 아닙니다."); }
-    state.book = parseBook(sheets, file.name); state.merged = {}; state.autoDone = false;
+    state.book = parseBook(sheets, file.name); state.merged = {}; state.autoDone = false; if (state.swap) { state.swap.key = ""; state.swap.pick = -1; }
   } catch (e) {
     $("drop-title").textContent = "여기에 결보강시간표(.xlsx) 파일을 끌어다 놓으세요";
     showError(e && e.message ? e.message : "파일을 읽지 못했습니다."); return;
@@ -782,11 +1107,19 @@ function init() {
   file.addEventListener("change", function () { loadFile(file.files[0]); file.value = ""; });
   state.name = store("tt_name") || ""; state.grade = store("tt_grade") || ""; state.klass = store("tt_class") || "";
   $("name").value = state.name; $("grade").value = state.grade;
-  $("name").addEventListener("input", function () { state.name = this.value; store("tt_name", this.value); state.tab = "t"; if (state.book) draw(); });
+  // 이름은 다 입력해서 명단과 정확히 같을 때만 바로 바꾼다(입력 중 화면이 울렁이지 않게). 부분 이름·못 찾은 이름은 Enter·다른 곳 누를 때
+  var nameGo = function (force) {
+    var v = $("name").value; state.name = v; store("tt_name", v);
+    if (state.book && (force || exactName(state.book, v))) { state.tab = "t"; draw(); }
+  };
+  $("name").addEventListener("input", function () { nameGo(false); });
+  $("name").addEventListener("change", function () { nameGo(true); });
+  $("name").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.isComposing) nameGo(true); });
   $("grade").addEventListener("change", function () { state.grade = this.value; store("tt_grade", this.value); state.klass = ""; if (state.book) { fillClassSelect(); state.tab = "c"; draw(); } });
   $("klass").addEventListener("change", function () { state.klass = this.value; store("tt_class", this.value); state.merged = {}; state.autoDone = false; state.tab = "c"; if (state.book) draw(); });
   $("tab-t").onclick = function () { state.tab = "t"; if (state.book) draw(); };
   $("tab-c").onclick = function () { state.tab = "c"; if (state.book) draw(); };
+  $("tab-s").onclick = function () { state.tab = "s"; if (state.book) draw(); };
   $("mlabel").addEventListener("input", function () {
     var v = this.value.trim(); Object.keys(state.merged).forEach(function (i) { state.merged[i] = v; }); if (state.book) draw();
   });
