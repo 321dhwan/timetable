@@ -53,6 +53,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline:3px so
 .form input, .form select { font:inherit; font-size:16px; color:var(--fg); background:var(--bg); border:1px solid var(--line);
   border-radius:8px; padding:8px 10px; width:100%; min-width:0; }
 .hint { font-size:12.5px; color:var(--muted); margin:8px 0 0; }
+.savedbar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; font-size:13px; color:var(--muted); margin-top:-10px; }
+.savedbar .stale { color:var(--warn); font-weight:700; }
+.btn.small { padding:4px 10px; font-size:13px; font-weight:500; }
+.savehelp { padding:0; font-size:14px; }
+.savehelp summary { padding:12px 16px; cursor:pointer; font-weight:700; }
+.savehelp .body { padding:0 16px 14px; display:flex; flex-direction:column; gap:10px; }
+.savehelp p, .savehelp ul { margin:0; }
+.savehelp ul { padding-left:20px; }
+.savehelp table { border-collapse:collapse; width:100%; font-size:13.5px; }
+.savehelp th, .savehelp td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+.savehelp th { background:var(--bg); font-weight:700; }
+.savehelp .sum { font-weight:700; }
 .tabs { display:flex; gap:8px; }
 .tab { flex:1; background:var(--surface); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:9px 12px; font-weight:500; }
 .tab[aria-selected="true"] { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); font-weight:700; }
@@ -187,7 +199,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 <main>
   <header>
     <h1>결보강 시간표 도우미</h1>
-    <p class="lead">학교에서 받은 결보강시간표 엑셀 파일을 올리고 이름과 학급을 고르면, 내 시간표와 우리 반 시간표를 이미지로 만들어 줍니다. 파일은 이 화면 안에서만 읽고 어디로도 보내지 않습니다.</p>
+    <p class="lead">학교에서 받은 결보강시간표 엑셀 파일을 올리고 이름과 학급을 고르면, 내 시간표와 우리 반 시간표를 이미지로 만들어 줍니다. 파일은 어디로도 보내지 않고 이 기기의 브라우저에만 저장됩니다.</p>
   </header>
 
   <label id="drop" tabindex="0" role="button" aria-label="결보강시간표 엑셀 파일 올리기">
@@ -195,7 +207,36 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <strong id="drop-title">여기에 결보강시간표(.xlsx) 파일을 끌어다 놓으세요</strong>
     <span class="sub" id="drop-sub">또는 눌러서 파일을 고르세요. 메신저로 받은 파일 그대로 올리면 됩니다.</span>
   </label>
+  <div class="savedbar" id="savedbar" hidden>
+    <span id="saved-msg"></span>
+    <button type="button" class="btn ghost small" id="forget">이 기기에서 지우기</button>
+  </div>
   <p class="err" id="err" role="alert" hidden></p>
+
+  <details class="card savehelp" id="savehelp">
+    <summary>한 번 올리면 이 컴퓨터에서 계속 볼 수 있습니다</summary>
+    <div class="body">
+      <p>각 선생님이 본인 컴퓨터에서 한 번 올려 두면 그 파일이 그 컴퓨터의 브라우저에 저장됩니다. 사이트를 다시 열 때마다 업로드 없이 시간표가 바로 뜨고, 아래 두 경우가 아니면 계속 유지됩니다.</p>
+      <ul>
+        <li>새 파일을 올릴 때: 새 파일로 바뀝니다.</li>
+        <li>화면의 "이 기기에서 지우기"를 누를 때: 저장된 파일이 삭제됩니다.</li>
+      </ul>
+      <p>저장된 파일이 지난 주 것이면 위에 "지난 주 시간표입니다" 안내가 뜹니다. 이번 주 파일을 새로 올려 주세요.</p>
+      <p>다만 같은 컴퓨터, 같은 브라우저에서만 유지됩니다. 아래 경우에는 다시 올려야 합니다.</p>
+      <table>
+        <thead><tr><th>상황</th><th>결과</th></tr></thead>
+        <tbody>
+          <tr><td>같은 PC지만 크롬으로 올리고 엣지로 열 때</td><td>브라우저마다 저장 공간이 따로라 안 보임</td></tr>
+          <tr><td>다른 PC나 휴대폰으로 열 때</td><td>기기마다 따로 올려야 함</td></tr>
+          <tr><td>시크릿(InPrivate) 창</td><td>창을 닫으면 사라짐</td></tr>
+          <tr><td>브라우저의 "인터넷 사용 기록 삭제"에서 쿠키 및 사이트 데이터를 지울 때</td><td>같이 지워짐</td></tr>
+          <tr><td>학교 PC에 재부팅 시 복원 프로그램이 깔려 있을 때</td><td>껐다 켜면 지워짐</td></tr>
+        </tbody>
+      </table>
+      <p>마지막 경우가 학교에서 가장 흔한 변수입니다. 교무실 PC는 보통 복원 프로그램이 없어서 괜찮지만, 공용 PC는 그럴 수 있습니다.</p>
+      <p class="sum">정리하면 내 컴퓨터, 내 브라우저에 한 번 올려 두면 새 파일을 올리거나 지우기 전까지 계속 보입니다.</p>
+    </div>
+  </details>
 
   <section class="card" id="formcard" hidden>
     <div class="form">
@@ -1110,6 +1151,44 @@ var $ = function (id) { return document.getElementById(id); };
 var state = { book: null, name: "", grade: "", klass: "", tab: "t", merged: {} };
 function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
 
+/* 올린 엑셀을 이 기기 브라우저(IndexedDB)에 저장해 두고 다음에 열 때 자동으로 불러온다. 서버로는 보내지 않는다 */
+function idbOpen() {
+  return new Promise(function (res, rej) {
+    try { var r = indexedDB.open("tt_store", 1); r.onupgradeneeded = function () { r.result.createObjectStore("files"); };
+      r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; } catch (e) { rej(e); }
+  });
+}
+function idbDo(mode, fn) {
+  return idbOpen().then(function (db) {
+    return new Promise(function (res, rej) {
+      var tx = db.transaction("files", mode), q = fn(tx.objectStore("files"));
+      tx.oncomplete = function () { db.close(); res(q ? q.result : null); };
+      tx.onerror = tx.onabort = function () { db.close(); rej(tx.error); };
+    });
+  });
+}
+function saveCached(name, buf) { return idbDo("readwrite", function (st) { return st.put({ name: name, data: buf, at: Date.now() }, "last"); }).catch(function () {}); }
+function loadCached() { return idbDo("readonly", function (st) { return st.get("last"); }).catch(function () { return null; }); }
+function clearCached() { return idbDo("readwrite", function (st) { return st.delete("last"); }).catch(function () {}); }
+function isStaleBook(b) {   // 그 주 월요일에서 7일이 지났으면 지난 주 파일
+  if (!b || !b.monday) return false;
+  var next = new Date(b.monday.getFullYear(), b.monday.getMonth(), b.monday.getDate() + 7);
+  return new Date() >= next;
+}
+function showSaved(b, cached) {
+  var bar = $("savedbar"), msg = $("saved-msg"); msg.textContent = ""; bar.hidden = false;
+  if (isStaleBook(b)) msg.appendChild(el("span", "stale", "지난 주 시간표입니다(" + rangeText(b) + "). 이번 주 파일을 새로 올려 주세요."));
+  else msg.textContent = cached ? "이 기기에 저장해 둔 시간표를 불러왔습니다." : "이 기기에 저장했습니다. 다음에 열면 바로 보입니다.";
+}
+function forgetFile() {
+  clearCached();
+  state.book = null; if (state.swap) { state.swap.key = ""; state.swap.pick = -1; }
+  $("drop").classList.remove("loaded");
+  $("drop-title").textContent = "여기에 결보강시간표(.xlsx) 파일을 끌어다 놓으세요";
+  $("drop-sub").textContent = "또는 눌러서 파일을 고르세요. 메신저로 받은 파일 그대로 올리면 됩니다.";
+  $("formcard").hidden = true; $("result").hidden = true; $("savedbar").hidden = true; showError("");
+}
+
 function showError(msg) { var e = $("err"); e.hidden = !msg; e.textContent = msg || ""; }
 function resolveName(input) {
   var v = (input || "").replace(/\s+/g, ""); if (!v || !state.book) return "";
@@ -1167,13 +1246,13 @@ function fillClassSelect() {
   nums.forEach(function (n) { sel.appendChild(new Option(n, n)); });
   if (nums.indexOf(keep) >= 0) sel.value = keep; else state.klass = "";
 }
-async function loadFile(file) {
+async function loadFile(file, cached) {
   showError(""); if (!file) return;
   if (!/\.xlsx$/i.test(file.name)) { showError("엑셀(.xlsx) 파일만 올릴 수 있습니다. 한글(hwp)이나 PDF가 아니라 엑셀 파일을 올려 주세요."); return; }
   $("drop-title").textContent = "파일을 읽는 중…";
   try {
-    var sheets;
-    try { sheets = await readBook(await file.arrayBuffer()); }
+    var sheets, buf;
+    try { buf = await file.arrayBuffer(); sheets = await readBook(buf); }
     catch (e0) { throw new Error("엑셀 파일을 읽지 못했습니다. 파일이 손상되었거나 엑셀(.xlsx) 형식이 아닙니다."); }
     state.book = parseBook(sheets, file.name); state.merged = {}; state.autoDone = false; if (state.swap) { state.swap.key = ""; state.swap.pick = -1; }
   } catch (e) {
@@ -1181,6 +1260,8 @@ async function loadFile(file) {
     showError(e && e.message ? e.message : "파일을 읽지 못했습니다."); return;
   }
   var b = state.book;
+  if (!cached) saveCached(file.name, buf);
+  showSaved(b, cached); $("savehelp").open = false;
   $("drop").classList.add("loaded");
   $("drop-title").textContent = file.name;
   $("drop-sub").textContent = (rangeText(b) ? rangeText(b) + " · " : "") + "다른 파일을 올리려면 여기를 누르거나 끌어다 놓으세요";
@@ -1216,6 +1297,13 @@ function init() {
   });
   $("save").onclick = savePNG;
   $("print").onclick = printSheet;
+  $("forget").onclick = forgetFile;
+  // 이 기기에 저장해 둔 파일이 있으면 바로 불러온다. 없으면 저장 안내를 펼쳐 둔다
+  loadCached().then(function (rec) {
+    if (state.book) return;
+    if (rec && rec.data) loadFile(new File([rec.data], rec.name || "결보강시간표.xlsx"), true);
+    else $("savehelp").open = true;
+  });
   // 이름을 이미 기억하고 있으면 파일을 올린 뒤 바로 보여 준다
   window.addEventListener("beforeunload", function () {});
 }
