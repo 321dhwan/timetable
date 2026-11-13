@@ -607,7 +607,10 @@ function classVM(book, cls, mergedDays) {
     var cl = cleanNotes(d.notes, cls);
     if (cl.length) notes.push({ day: d.name + " " + dateText(d), text: cl.join(" · ") });
     var ev = cl.find(function (s) { return EVENT_RE.test(s) && !/교시/.test(s); });
-    if (ev) detected[i] = ev;
+    // 그날 일부 교시만 수업이 있으면(단축 수업, 예: 수능 예비소집일 3교시까지) 하루 통째 일정으로 합치지 않는다.
+    // 모든 교시에 수업이 그대로 적힌 날(학력평가 감독 시간표)이나 수업이 없는 날만 합친다. 칸에 '수능일'처럼 행사 이름만 적힌 것은 수업으로 세지 않는다
+    var n = 0; for (var p = 1; p <= d.max; p++) { var c = cur.get(i + "," + p); if (c && c.subj && !EVENT_RE.test(c.subj)) n++; }
+    if (ev && (n === 0 || n >= d.max)) detected[i] = ev;
   });
   var merged = {};
   Object.keys(mergedDays).forEach(function (i) { if (mergedDays[i] != null) merged[i] = mergedDays[i] || "일정"; });
