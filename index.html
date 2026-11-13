@@ -586,6 +586,13 @@ function teacherVM(book, name) {
 
 /* 학급 시간표에서 선생님 이름을 적지 않는 수업: 창체, 1학년 수학(분반 수업이라 학생마다 선생님이 다르다) */
 function hideTeacher(cls, subj) { return /^창체/.test(subj) || (cls.split("-")[0] === "1" && /^수학/.test(subj)); }
+/* 행사로 합치는 날, 합치기 시작할 교시. 앞쪽 일부 교시만 수업이 있으면(단축 수업, 예: 수능 예비소집일 1~3교시) 그 다음 교시부터 합친다.
+   수업이 없거나 모든 교시에 수업이 적힌 날(학력평가 감독 시간표)은 1교시부터 하루 통째로. 칸에 '수능일'처럼 행사 이름만 적힌 것은 수업으로 세지 않는다 */
+function mergeStart(book, cur, i) {
+  var d = book.days[i], last = 0, n = 0;
+  for (var p = 1; p <= d.max; p++) { var c = cur.get(i + "," + p); if (c && c.subj && !EVENT_RE.test(c.subj)) { n++; last = p; } }
+  return n === 0 || last >= d.max ? 1 : last + 1;
+}
 function classVM(book, cls, mergedDays) {
   var cells = {}, cur = classCells(book, cls), hasBase = book.baseAt.size > 0, anyChange = false;
   var useColor = book.changeColors.size > 0;   // 엑셀의 시간교체·날짜교체·보강 색을 그대로 따른다
@@ -607,17 +614,14 @@ function classVM(book, cls, mergedDays) {
     var cl = cleanNotes(d.notes, cls);
     if (cl.length) notes.push({ day: d.name + " " + dateText(d), text: cl.join(" · ") });
     var ev = cl.find(function (s) { return EVENT_RE.test(s) && !/교시/.test(s); });
-    // 그날 일부 교시만 수업이 있으면(단축 수업, 예: 수능 예비소집일 3교시까지) 하루 통째 일정으로 합치지 않는다.
-    // 모든 교시에 수업이 그대로 적힌 날(학력평가 감독 시간표)이나 수업이 없는 날만 합친다. 칸에 '수능일'처럼 행사 이름만 적힌 것은 수업으로 세지 않는다
-    var n = 0; for (var p = 1; p <= d.max; p++) { var c = cur.get(i + "," + p); if (c && c.subj && !EVENT_RE.test(c.subj)) n++; }
-    if (ev && (n === 0 || n >= d.max)) detected[i] = ev;
+    if (ev) detected[i] = ev;
   });
-  var merged = {};
-  Object.keys(mergedDays).forEach(function (i) { if (mergedDays[i] != null) merged[i] = mergedDays[i] || "일정"; });
+  var merged = {}, mergeFrom = {};
+  Object.keys(mergedDays).forEach(function (i) { if (mergedDays[i] != null) { merged[i] = mergedDays[i] || "일정"; mergeFrom[i] = mergeStart(book, cur, +i); } });
   var days = book.days;   // 금요일 6교시 여부는 parseBook에서 엑셀 기준으로 정한다
   return {
     kind: "class", title: cls + "반 주간 시간표", range: rangeText(book), rangeLabel: rangeLabel(book),
-    chips: [], legend: kindLegend(cells), days: days, cells: cells, merged: merged,
+    chips: [], legend: kindLegend(cells), days: days, cells: cells, merged: merged, mergeFrom: mergeFrom,
     mergedChanged: useColor || hasBase, notes: notes, foot: [book.issued ? "배부 " + book.issued : ""].filter(Boolean), detected: detected,
     empty: cur.size === 0
   };
@@ -647,10 +651,13 @@ function renderDOM(vm, host) {
     var ph = el("div", "ph", String(p)); ph.style.gridColumn = 1; ph.style.gridRow = p + 1; grid.appendChild(ph);
     vm.days.forEach(function (d, i) {
       var key = i + "," + p, c = vm.cells[key], div;
-      if (vm.merged[i] != null) {
-        if (p !== 1) return;
-        div = el("div", "cell merged" + (vm.mergedChanged ? " changed" : "")); div.appendChild(el("b", "", vm.merged[i]));
-        div.style.gridColumn = i + 2; div.style.gridRow = "2 / span 7"; grid.appendChild(div); return;
+      var mf = vm.merged[i] != null ? (vm.mergeFrom && vm.mergeFrom[i]) || 1 : 0;
+      if (mf && p >= mf) {
+        if (p !== mf) return;
+        var span = 8 - mf, lab = el("b", "", vm.merged[i]);
+        if (span < 7) lab.style.fontSize = Math.max(14, Math.min(26, Math.floor(span * 62 / (Array.from(vm.merged[i]).length * 1.5)))) + "px";
+        div = el("div", "cell merged" + (vm.mergedChanged ? " changed" : "")); div.appendChild(lab);
+        div.style.gridColumn = i + 2; div.style.gridRow = (mf + 1) + " / span " + span; grid.appendChild(div); return;
       }
       if (p > d.max) div = el("div", "cell off");
       else if (!c) div = el("div", "cell empty");
@@ -728,9 +735,10 @@ async function renderPNG(vm) {
     ctx.fillStyle = "#555"; ctx.font = "400 18px " + FONT; ctx.fillText(String(p), pad + pw / 2 - 6, y + rh / 2);
     vm.days.forEach(function (d, i) {
       var x = gx + gap + i * (cw + gap), key = i + "," + p, c = vm.cells[key];
-      if (vm.merged[i] != null) {
-        if (p !== 1) return;
-        var mh = 7 * rh + 6 * gap;
+      var mf = vm.merged[i] != null ? (vm.mergeFrom && vm.mergeFrom[i]) || 1 : 0;
+      if (mf && p >= mf) {
+        if (p !== mf) return;
+        var mh = (8 - mf) * rh + (7 - mf) * gap;
         rr(ctx, x, y, cw, mh, 12); ctx.fillStyle = vm.mergedChanged ? KINDS[""].bg : "#2b3550"; ctx.fill();
         var chars = Array.from(vm.merged[i]), step = Math.min(60, (mh - 40) / chars.length);
         ctx.fillStyle = vm.mergedChanged ? KINDS[""].fg : "#ffffff"; ctx.font = "700 " + Math.min(46, step * .8) + "px " + FONT;
